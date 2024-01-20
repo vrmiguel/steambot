@@ -11,7 +11,9 @@ use teloxide::{
 };
 use tokio::task::JoinSet;
 
-use crate::steam_api::{app_hover::get_app_hover_details, dlc::get_dlcs};
+use crate::steam_api::{
+    app_hover::get_app_hover_details, dlc::get_dlcs, steam_deck::get_steam_deck_compatibility,
+};
 
 mod steam_api;
 mod utils;
@@ -40,8 +42,8 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
             let Suggestion { name, price, .. } = &suggestion;
             let app_id = suggestion.id;
 
-            let (app_hover_details, dlcs) =
-                tokio::try_join!(get_app_hover_details(app_id), get_dlcs(app_id))?;
+            let (app_hover_details, dlcs, maybe_deck_compat) =
+                tokio::try_join!(get_app_hover_details(app_id), get_dlcs(app_id), get_steam_deck_compatibility(app_id))?;
 
             let maybe_platforms = dlcs.dlcs.first().map(|dlc| &dlc.platforms);
 
@@ -52,7 +54,10 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
                 "🎮 [{name}](https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg) - {price}\n"
             )?;
             if let Some(platforms) = maybe_platforms {
-                writeln!(body, "🖥 Plataformas suportadas\n{platforms}\n")?;
+                writeln!(body, "🖥 Plataformas suportadas\n· {platforms}\n")?;
+            }
+            if let Some(deck_compat) = maybe_deck_compat {
+                writeln!(body, "🖼 Compatibilidade com o Steam Deck\n· {deck_compat}\n")?;
             }
             writeln!(
                 body,
