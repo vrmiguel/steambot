@@ -51,23 +51,23 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
 
             writeln!(
                 body,
-                "🎮 [{name}](https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg) - {price}\n"
+                "[{name}](https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg) - {price}\n"
             )?;
             if let Some(platforms) = maybe_platforms {
-                writeln!(body, "🖥 Plataformas suportadas\n· {platforms}\n")?;
+                writeln!(body, "*Plataformas suportadas*: {platforms}\n")?;
             }
             if let Some(deck_compat) = maybe_deck_compat {
-                writeln!(body, "🖼 Compatibilidade com o Steam Deck\n· {deck_compat}\n")?;
+                writeln!(body, "*Compatibilidade com o Steam Deck*: {deck_compat}\n")?;
             }
             writeln!(
                 body,
-                "💬 Descrição\n {}\n\n🏆 Avaliações\n{} ({} avaliações)\n\n{}\n",
+                "*Descrição*\n{}\n\n*Avaliações*: {} ({} avaliações)\n\n*Lançamento*: {}\n",
                 app_hover_details.description,
                 app_hover_details.review_summary.review_summary,
                 app_hover_details.review_summary.review_count,
-                app_hover_details.release_date,
+                get_release_date(&app_hover_details.release_date),
             )?;
-            writeln!(body, "💸 {dlcs}")?;
+            writeln!(body, "{dlcs}")?;
 
             Ok((suggestion, body)) as anyhow::Result<(Suggestion, String)>
         });
@@ -157,13 +157,6 @@ async fn main() {
     ));
 
     Dispatcher::builder(bot, handler).build().dispatch().await;
-
-    // TODO: price history
-    // let suggestions = dbg!(get_suggestions("gris").await.unwrap());
-    //
-    // for suggestion in suggestions {
-    //     fetch_game_data(suggestion.id).await.unwrap();
-    // }
 }
 
 fn start_tracing() {
@@ -175,4 +168,8 @@ fn start_tracing() {
         .finish();
 
     tracing::subscriber::set_global_default(subscriber).unwrap();
+}
+
+fn get_release_date(input: &str) -> &str {
+    input.rsplit_once(' ').map(|(_before, after)| after).unwrap_or(input)
 }
