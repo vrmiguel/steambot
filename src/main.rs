@@ -12,7 +12,8 @@ use teloxide::{
 use tokio::task::JoinSet;
 
 use crate::steam_api::{
-    app_hover::get_app_hover_details, dlc::get_dlcs, steam_deck::get_steam_deck_compatibility,
+    app_hover::get_app_hover_details, dlc::get_dlcs, protondb::get_proton_compatibility,
+    steam_deck::get_steam_deck_compatibility,
 };
 
 mod steam_api;
@@ -42,8 +43,13 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
             let Suggestion { name, price, .. } = &suggestion;
             let app_id = suggestion.id;
 
-            let (app_hover_details, dlcs, maybe_deck_compat) =
-                tokio::try_join!(get_app_hover_details(app_id), get_dlcs(app_id), get_steam_deck_compatibility(app_id))?;
+            let (app_hover_details, dlcs, maybe_deck_compat, proton_compat) =
+                tokio::try_join!(
+                    get_app_hover_details(app_id),
+                    get_dlcs(app_id),
+                    get_steam_deck_compatibility(app_id),
+                    get_proton_compatibility(app_id)
+                )?;
 
             let maybe_platforms = dlcs.dlcs.first().map(|dlc| &dlc.platforms);
 
@@ -56,6 +62,7 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
             if let Some(platforms) = maybe_platforms {
                 writeln!(body, "*Plataformas suportadas*: {platforms}\n")?;
             }
+            writeln!(body, "*Status no ProtonDB*: {} ({} relatórios)", convert_proton_tier(&proton_compat.trending_tier), proton_compat.total)?;
             if let Some(deck_compat) = maybe_deck_compat {
                 writeln!(body, "*Compatibilidade com o Steam Deck*: {deck_compat}\n")?;
             }
@@ -171,5 +178,19 @@ fn start_tracing() {
 }
 
 fn get_release_date(input: &str) -> &str {
-    input.rsplit_once(' ').map(|(_before, after)| after).unwrap_or(input)
+    input
+        .rsplit_once(' ')
+        .map(|(_before, after)| after)
+        .unwrap_or(input)
+}
+
+fn convert_proton_tier(input: &str) -> &str {
+    match input {
+        "platinum" => "Platina",
+        "gold" => "Ouro",
+        "silver" => "Prata",
+        "borked" => "Quebrado",
+        "bronze" => "Bronze",
+        other => other,
+    }
 }

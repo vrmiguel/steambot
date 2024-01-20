@@ -48,7 +48,7 @@ impl Display for DlcForApp {
             return Ok(());
         }
 
-        writeln!(f, "*DLCs*\n")?;
+        writeln!(f, "*DLCs*")?;
         for dlc in &self.dlcs {
             writeln!(f, "{dlc}")?
         }
