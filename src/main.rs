@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use steam_api::suggest::{get_suggestions, Suggestion};
 use teloxide::{
     prelude::*,
@@ -17,10 +19,23 @@ mod utils;
 async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, String)>> {
     use std::fmt::Write;
 
+    let suggestions = {
+        let start = Instant::now();
+        let suggestions = get_suggestions(query_term).await?;
+        tracing::info!(
+            "Fetched suggestions for query '{query_term}' in {}ms",
+            start.elapsed().as_millis()
+        );
+
+        suggestions
+    };
+
     let mut results = Vec::new();
     let mut join_set = JoinSet::new();
 
-    for suggestion in get_suggestions(query_term).await? {
+    let start = Instant::now();
+
+    for suggestion in suggestions {
         join_set.spawn(async move {
             let Suggestion { name, price, .. } = &suggestion;
             let app_id = suggestion.id;
@@ -34,7 +49,7 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
 
             writeln!(
                 body,
-                "🎮 [{name}](https://store.steampowered.com/app/{app_id}/) - {price}\n"
+                "🎮 [{name}](https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg) - {price}\n"
             )?;
             if let Some(platforms) = maybe_platforms {
                 writeln!(body, "🖥 Plataformas suportadas\n{platforms}\n")?;
@@ -62,6 +77,11 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
             }
         }
     }
+
+    tracing::info!(
+        "Built bodies for all messages for query {query_term} in {}ms",
+        start.elapsed().as_millis()
+    );
 
     Ok(results)
 }
@@ -106,11 +126,18 @@ async fn main() {
                         let steamdb = format!("https://steamdb.info/app/{}/", suggestion.id)
                             .parse()
                             .unwrap();
+                        let steam =
+                            format!("https://store.steampowered.com/app/{}/", suggestion.id)
+                                .parse()
+                                .unwrap();
 
                         let protondb = InlineKeyboardButton::url("ProtonDB", protondb);
                         let steamdb = InlineKeyboardButton::url("SteamDB", steamdb);
+                        let steam = InlineKeyboardButton::url("Página na Steam", steam);
 
-                        InlineKeyboardMarkup::default().append_row([protondb, steamdb])
+                        InlineKeyboardMarkup::default()
+                            .append_row([protondb, steamdb])
+                            .append_row([steam])
                     })
                 })
                 .map(InlineQueryResult::Article)
