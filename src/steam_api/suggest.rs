@@ -1,7 +1,7 @@
 use anyhow::Context;
 use serde::Deserialize;
 
-use crate::utils::deserialize_string_to_usize;
+use crate::{utils::deserialize_string_to_usize, HTTP_CLIENT};
 
 #[derive(Debug, Deserialize)]
 pub struct Suggestion {
@@ -19,7 +19,9 @@ pub async fn get_suggestions(term: &str) -> anyhow::Result<Vec<Suggestion>> {
     let encoded_term = urlencoding::Encoded::new(term);
     let url = format!("https://store.steampowered.com/search/suggest?cc=BR&l=brazilian&realm=1&origin=https:%2F%2Fstore.steampowered.com&f=jsonfull&term={encoded_term}&require_type=game,software");
 
-    reqwest::get(url)
+    HTTP_CLIENT
+        .get(url)
+        .send()
         .await?
         .json()
         .await

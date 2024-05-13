@@ -1098,6 +1098,7 @@ dependencies = [
  "anyhow",
  "arrayvec",
  "chrono",
+ "lazy_static",
  "reqwest",
  "serde",
  "serde_json",

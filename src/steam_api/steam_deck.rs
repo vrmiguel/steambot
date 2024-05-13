@@ -1,6 +1,8 @@
 use anyhow::Context;
 use serde::Deserialize;
 
+use crate::HTTP_CLIENT;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeckCompat {
@@ -16,7 +18,9 @@ struct Results {
 pub async fn get_steam_deck_compatibility(app_id: usize) -> anyhow::Result<Option<&'static str>> {
     let url = format!("https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?nAppID={app_id}&l=english&cc=US");
 
-    let compat: DeckCompat = reqwest::get(url)
+    let compat: DeckCompat = HTTP_CLIENT
+        .get(url)
+        .send()
         .await?
         .json()
         .await

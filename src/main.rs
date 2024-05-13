@@ -16,6 +16,10 @@ use crate::steam_api::{
     steam_deck::get_steam_deck_compatibility,
 };
 
+lazy_static::lazy_static! {
+    static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();
+}
+
 mod steam_api;
 mod utils;
 
@@ -33,7 +37,7 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
         suggestions
     };
 
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(suggestions.len());
     let mut join_set = JoinSet::new();
 
     let start = Instant::now();

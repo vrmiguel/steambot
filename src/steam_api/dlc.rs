@@ -3,6 +3,8 @@ use std::fmt::Display;
 use anyhow::Context;
 use serde::Deserialize;
 
+use crate::HTTP_CLIENT;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DlcForApp {
@@ -35,7 +37,9 @@ pub async fn get_dlcs(app_id: usize) -> anyhow::Result<DlcForApp> {
     let url =
         format!("https://store.steampowered.com/api/dlcforapp/?appid={app_id}&cc=BR&l=brazilian");
 
-    reqwest::get(url)
+    HTTP_CLIENT
+        .get(url)
+        .send()
         .await?
         .json()
         .await

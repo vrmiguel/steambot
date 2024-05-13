@@ -1,6 +1,8 @@
 use anyhow::Context;
 use serde::Deserialize;
 
+use crate::HTTP_CLIENT;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProtonDBCompatibility {
@@ -11,7 +13,9 @@ pub struct ProtonDBCompatibility {
 pub async fn get_proton_compatibility(app_id: usize) -> anyhow::Result<ProtonDBCompatibility> {
     let url = format!("https://www.protondb.com/api/v1/reports/summaries/{app_id}.json");
 
-    reqwest::get(url)
+    HTTP_CLIENT
+        .get(url)
+        .send()
         .await?
         .json()
         .await

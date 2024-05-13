@@ -1,6 +1,8 @@
 use anyhow::Context;
 use serde::Deserialize;
 
+use crate::HTTP_CLIENT;
+
 #[derive(Debug, Deserialize)]
 pub struct AppHoverDetails {
     #[serde(rename = "strReleaseDate")]
@@ -23,7 +25,9 @@ pub async fn get_app_hover_details(app_id: usize) -> anyhow::Result<AppHoverDeta
     let url =
         format!("https://store.steampowered.com/apphoverpublic/{app_id}/?l=brazilian&json=1&cc=br");
 
-    reqwest::get(url)
+    HTTP_CLIENT
+        .get(url)
+        .send()
         .await?
         .json()
         .await
