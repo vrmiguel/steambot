@@ -1,7 +1,9 @@
-use std::{sync::Arc, time::Instant};
+use std::{env, sync::Arc, time::Instant};
 
 use frankenstein::{
-    AllowedUpdate, AnswerInlineQueryParams, AsyncApi, AsyncTelegramApi, GetUpdatesParams, InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResult, InlineQueryResultArticle, InputMessageContent, InputTextMessageContent, ParseMode, UpdateContent
+    AllowedUpdate, AnswerInlineQueryParams, AsyncApi, AsyncTelegramApi, GetUpdatesParams,
+    InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResult, InlineQueryResultArticle,
+    InputMessageContent, InputTextMessageContent, ParseMode, UpdateContent,
 };
 use steam_api::suggest::{get_suggestions, Suggestion};
 
@@ -102,7 +104,9 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
 async fn main() {
     start_tracing();
 
-    let api = AsyncApi::new("6837644181:AAGG9R6NmT3Rjf2v4TMd74ky0WzBRE0B2wE");
+    let token = env::var("TELOXIDE_TOKEN").unwrap();
+
+    let api = AsyncApi::new(&token);
     let api = Arc::new(api);
 
     let update_params_builder =
@@ -122,7 +126,11 @@ async fn main() {
                             eprintln!("Failed to get Suggestions, ignoring query");
                             continue;
                         };
-                        tracing::info!("Built data for query {} in {}ms", inline_query.query, now.elapsed().as_millis());
+                        tracing::info!(
+                            "Built data for query {} in {}ms",
+                            inline_query.query,
+                            now.elapsed().as_millis()
+                        );
                         let now = Instant::now();
 
                         let replies: Vec<_> = messages
@@ -188,7 +196,10 @@ async fn main() {
                             })
                             .collect();
 
-                        tracing::info!("Built inline query responses in {}ms", now.elapsed().as_millis());
+                        tracing::info!(
+                            "Built inline query responses in {}ms",
+                            now.elapsed().as_millis()
+                        );
                         let now = Instant::now();
 
                         let answer = AnswerInlineQueryParams::builder()
