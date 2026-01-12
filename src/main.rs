@@ -1,13 +1,18 @@
 use std::{env, sync::Arc, time::Instant};
 
 use frankenstein::ParseMode;
-use frankenstein::inline_mode::{InlineQueryResult, InlineQueryResultArticle, InputMessageContent, InputTextMessageContent};
-use frankenstein::types::{AllowedUpdate, InlineKeyboardButton, InlineKeyboardMarkup};
-use frankenstein::updates::UpdateContent;
-use frankenstein::{AsyncTelegramApi, methods::{GetUpdatesParams, AnswerInlineQueryParams}};
 use frankenstein::client_reqwest::Bot;
+use frankenstein::inline_mode::{
+    InlineQueryResult, InlineQueryResultArticle, InputMessageContent, InputTextMessageContent,
+};
+use frankenstein::types::{AllowedUpdate, InlineKeyboardButton, InlineKeyboardMarkup};
+use frankenstein::updates::{Update, UpdateContent};
+use frankenstein::{
+    AsyncTelegramApi,
+    methods::{AnswerInlineQueryParams, GetUpdatesParams},
+};
 
-use steam_api::suggest::{get_suggestions, Suggestion};
+use steam_api::suggest::{Suggestion, get_suggestions};
 
 use tokio::task::JoinSet;
 
@@ -52,7 +57,7 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
             let Suggestion { name, price, .. } = &suggestion;
             let app_id = suggestion.id;
 
-            let (app_hover_details, dlcs, maybe_deck_compat, proton_compat) =
+            let (app_hover_details, dlcs, maybe_deck_compat, maybe_proton_compat) =
                 tokio::try_join!(
                     get_app_hover_details(app_id),
                     get_dlcs(app_id),
@@ -71,7 +76,9 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
             if let Some(platforms) = maybe_platforms {
                 writeln!(body, "*Plataformas suportadas*: {platforms}\n")?;
             }
-            writeln!(body, "*Status no ProtonDB*: {} ({} relatórios)", convert_proton_tier(&proton_compat.trending_tier), proton_compat.total)?;
+            if let Some(proton_compat) = maybe_proton_compat {
+                writeln!(body, "*Status no ProtonDB*: {} ({} relatórios)", convert_proton_tier(&proton_compat.trending_tier), proton_compat.total)?;
+            }
             if let Some(deck_compat) = maybe_deck_compat {
                 writeln!(body, "*Compatibilidade com o Steam Deck*: {deck_compat}\n")?;
             }
@@ -92,7 +99,7 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
     while let Some(res) = join_set.join_next().await {
         match res {
             Ok(Ok((suggestion, body))) => results.push((suggestion, body)),
-            Ok(Err(err)) => tracing::error!("Problem fetching from SteamAPI: {err}"),
+            Ok(Err(err)) => tracing::error!("Failed request: {err:?}"),
             Err(err) => {
                 tracing::error!("Problem joining future: {err}")
             }
@@ -116,137 +123,154 @@ async fn main() {
     let api = Bot::new(&token);
     let api = Arc::new(api);
 
-    let mut update_params = GetUpdatesParams::builder().timeout(5).allowed_updates(vec![AllowedUpdate::InlineQuery]).build();
+    let mut update_params = GetUpdatesParams::builder()
+        .timeout(5)
+        .allowed_updates(vec![AllowedUpdate::InlineQuery])
+        .build();
 
     loop {
         let result = api.get_updates(&update_params).await;
 
         match result {
             Ok(response) => {
-                for update in response.result {
-                    if let UpdateContent::InlineQuery(inline_query) = update.content {
-                        if inline_query.query.trim() == "" {
-                            continue;
-                        }
-                        let started_at = Instant::now();
-                        let now = Instant::now();
-                        let Ok(messages) = build_messages(&inline_query.query).await else {
-                            eprintln!("Failed to get Suggestions, ignoring query");
-                            continue;
-                        };
-
-                        tracing::info!(
-                            "Built data for query {} in {}ms",
-                            inline_query.query,
-                            now.elapsed().as_millis()
-                        );
-                        let now = Instant::now();
-
-                        let replies: Vec<_> = if messages.is_empty() {
-                            // Return a non-clickable "No results found" entry
-                            vec![InlineQueryResult::Article(
-                                InlineQueryResultArticle::builder()
-                                    .id("no_results".to_string())
-                                    .title(format!("Nenhum resultado encontrado para '{}'", inline_query.query))
-                                    .description("Tente uma busca diferente".to_string())
-                                    .input_message_content(InputMessageContent::Text(
-                                        InputTextMessageContent::builder()
-                                            .message_text(format!("Nenhum resultado encontrado para '{}'", inline_query.query))
-                                            .build(),
-                                    ))
-                                    .build(),
-                            )]
-                        } else {
-                            messages
-                                .into_iter()
-                                .enumerate()
-                                .map(|(idx, (suggestion, body))| {
-                                let title = format!("{} - {}", suggestion.name, suggestion.price);
-
-                                InlineQueryResult::Article(
-                                    InlineQueryResultArticle::builder()
-                                        .id(idx.to_string())
-                                        .title(title)
-                                        .thumbnail_url(suggestion.img.parse::<String>().unwrap())
-                                        .input_message_content(InputMessageContent::Text(
-                                            #[allow(deprecated)]
-                                            InputTextMessageContent::builder()
-                                                .message_text(body)
-                                                .parse_mode(ParseMode::Markdown)
-                                                .build(),
-                                        ))
-                                        .reply_markup({
-                                            let protondb: String = format!(
-                                                "https://protondb.com/app/{}/",
-                                                suggestion.id
-                                            )
-                                            .parse()
-                                            .unwrap();
-                                            let steamdb: String = format!(
-                                                "https://steamdb.info/app/{}/",
-                                                suggestion.id
-                                            )
-                                            .parse()
-                                            .unwrap();
-                                            let steam: String = format!(
-                                                "https://store.steampowered.com/app/{}/",
-                                                suggestion.id
-                                            )
-                                            .parse()
-                                            .unwrap();
-
-                                            let protondb = InlineKeyboardButton::builder()
-                                                .url(protondb)
-                                                .text("ProtonDB")
-                                                .build();
-                                            let steamdb = InlineKeyboardButton::builder()
-                                                .url(steamdb)
-                                                .text("SteamDB")
-                                                .build();
-                                            let steam = InlineKeyboardButton::builder()
-                                                .text("Página na Steam")
-                                                .url(steam)
-                                                .build();
-
-                                            let keyboard = vec![
-                                                vec![protondb, steamdb],
-                                                vec![steam],
-                                            ];
-
-                                            InlineKeyboardMarkup::builder()
-                                                .inline_keyboard(keyboard)
-                                                .build()
-                                        })
-                                        .build(),
-                                )
-                                })
-                                .collect()
-                        };
-
-                        tracing::info!(
-                            "Built inline query responses in {}ms",
-                            now.elapsed().as_millis()
-                        );
-                        let now = Instant::now();
-
-                        let answer = AnswerInlineQueryParams::builder()
-                            .inline_query_id(inline_query.id)
-                            .results(replies)
-                            .build();
-
-                        if let Err(err) = api.answer_inline_query(&answer).await {
-                            tracing::error!("Failed to response inline query: {err}")
-                        }
-                        tracing::info!("Sent response in {}ms", now.elapsed().as_millis());
-                        tracing::info!("Whole process took {}ms", started_at.elapsed().as_millis());
-
-                        update_params.offset = Some(i64::from(update.update_id) + 1);
-                    }
+                let updates = response.result;
+                let offset = updates.iter().map(|update| update.update_id).max();
+                // let too_short = updates.iter().all(|update| match &update.content {
+                //     UpdateContent::InlineQuery(query) => {
+                //         query.query.len() <= 2
+                //     },
+                //     _ => false,
+                // });
+                if true {
+                    let api_clone = api.clone();
+                    tokio::spawn(async move { process_updates(api_clone, updates).await });
                 }
+
+                update_params.offset = offset.map(|offset| i64::from(offset) + 1);
             }
             Err(err) => {
                 tracing::error!("Failed to get inline query: {err}")
             }
+        }
+    }
+}
+
+async fn process_updates(api: Arc<Bot>, updates: Vec<Update>) {
+    for update in updates {
+        if let UpdateContent::InlineQuery(inline_query) = update.content {
+            // if inline_query.query.trim() == "" {
+            //     continue;
+            // }
+            let started_at = Instant::now();
+            let now = Instant::now();
+            let Ok(messages) = build_messages(&inline_query.query).await else {
+                eprintln!("Failed to get Suggestions, ignoring query");
+                continue;
+            };
+
+            tracing::info!(
+                "Built data for query {} in {}ms",
+                inline_query.query,
+                now.elapsed().as_millis()
+            );
+            let now = Instant::now();
+
+            let replies: Vec<_> = if messages.is_empty() {
+                // Return a non-clickable "No results found" entry
+                vec![InlineQueryResult::Article(
+                    InlineQueryResultArticle::builder()
+                        .id("no_results".to_string())
+                        .title(format!(
+                            "Nenhum resultado encontrado para '{}'",
+                            inline_query.query
+                        ))
+                        .description("Tente uma busca diferente".to_string())
+                        .input_message_content(InputMessageContent::Text(
+                            InputTextMessageContent::builder()
+                                .message_text(format!(
+                                    "Nenhum resultado encontrado para '{}'",
+                                    inline_query.query
+                                ))
+                                .build(),
+                        ))
+                        .build(),
+                )]
+            } else {
+                messages
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, (suggestion, body))| {
+                        let title = format!("{} - {}", suggestion.name, suggestion.price);
+
+                        InlineQueryResult::Article(
+                            InlineQueryResultArticle::builder()
+                                .id(idx.to_string())
+                                .title(title)
+                                .thumbnail_url(suggestion.img.parse::<String>().unwrap())
+                                .input_message_content(InputMessageContent::Text(
+                                    #[allow(deprecated)]
+                                    InputTextMessageContent::builder()
+                                        .message_text(body)
+                                        .parse_mode(ParseMode::Markdown)
+                                        .build(),
+                                ))
+                                .reply_markup({
+                                    let protondb: String =
+                                        format!("https://protondb.com/app/{}/", suggestion.id)
+                                            .parse()
+                                            .unwrap();
+                                    let steamdb: String =
+                                        format!("https://steamdb.info/app/{}/", suggestion.id)
+                                            .parse()
+                                            .unwrap();
+                                    let steam: String = format!(
+                                        "https://store.steampowered.com/app/{}/",
+                                        suggestion.id
+                                    )
+                                    .parse()
+                                    .unwrap();
+
+                                    let protondb = InlineKeyboardButton::builder()
+                                        .url(protondb)
+                                        .text("ProtonDB")
+                                        .build();
+                                    let steamdb = InlineKeyboardButton::builder()
+                                        .url(steamdb)
+                                        .text("SteamDB")
+                                        .build();
+                                    let steam = InlineKeyboardButton::builder()
+                                        .text("Página na Steam")
+                                        .url(steam)
+                                        .build();
+
+                                    let keyboard = vec![vec![protondb, steamdb], vec![steam]];
+
+                                    InlineKeyboardMarkup::builder()
+                                        .inline_keyboard(keyboard)
+                                        .build()
+                                })
+                                .build(),
+                        )
+                    })
+                    .collect()
+            };
+
+            tracing::info!(
+                "Built inline query responses in {}ms",
+                now.elapsed().as_millis()
+            );
+            let now = Instant::now();
+
+            let answer = AnswerInlineQueryParams::builder()
+                .inline_query_id(inline_query.id)
+                .results(replies)
+                .build();
+
+            if let Err(err) = api.answer_inline_query(&answer).await {
+                tracing::error!("Failed to response inline query: {err}")
+            }
+            tracing::info!("Sent response in {}ms", now.elapsed().as_millis());
+            tracing::info!("Whole process took {}ms", started_at.elapsed().as_millis());
         }
     }
 }

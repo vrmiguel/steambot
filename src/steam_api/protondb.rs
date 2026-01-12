@@ -10,7 +10,9 @@ pub struct ProtonDBCompatibility {
     pub trending_tier: String,
 }
 
-pub async fn get_proton_compatibility(app_id: usize) -> anyhow::Result<ProtonDBCompatibility> {
+pub async fn get_proton_compatibility(
+    app_id: usize,
+) -> anyhow::Result<Option<ProtonDBCompatibility>> {
     let url = format!("https://www.protondb.com/api/v1/reports/summaries/{app_id}.json");
 
     HTTP_CLIENT

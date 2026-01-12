@@ -16,7 +16,9 @@ struct Results {
 }
 
 pub async fn get_steam_deck_compatibility(app_id: usize) -> anyhow::Result<Option<&'static str>> {
-    let url = format!("https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?nAppID={app_id}&l=english&cc=US");
+    let url = format!(
+        "https://store.steampowered.com/saleaction/ajaxgetdeckappcompatibilityreport?nAppID={app_id}&l=english&cc=US"
+    );
 
     let compat: DeckCompat = HTTP_CLIENT
         .get(url)

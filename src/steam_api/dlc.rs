@@ -15,7 +15,7 @@ pub struct DlcForApp {
 #[derive(Debug, Deserialize)]
 pub struct Dlc {
     pub name: String,
-    pub price_overview: PriceOverview,
+    pub price_overview: Option<PriceOverview>,
     pub platforms: Platforms,
 }
 
@@ -43,7 +43,9 @@ pub async fn get_dlcs(app_id: usize) -> anyhow::Result<DlcForApp> {
         .await?
         .json()
         .await
-        .with_context(|| "Failed to deserialize response of /dlcforapp")
+        .with_context(|| {
+            format!("Failed to deserialize response of /dlcforapp (app_id = {app_id})")
+        })
 }
 
 impl Display for DlcForApp {
@@ -63,7 +65,9 @@ impl Display for DlcForApp {
 
 impl Display for Dlc {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.name.trim_end(), self.price_overview)?;
+        if let Some(price_overview) = &self.price_overview {
+            write!(f, "{}: {}", self.name.trim_end(), price_overview)?;
+        }
         Ok(())
     }
 }
