@@ -10,9 +10,9 @@ pub struct Suggestion {
     pub img: String,
     pub name: String,
     pub price: String,
-    pub small_cap: String,
-    #[serde(rename = "type")]
-    pub r#type: String,
+    // pub small_cap: String,
+    // #[serde(rename = "type")]
+    // pub r#type: String,
 }
 
 pub async fn get_suggestions(term: &str) -> anyhow::Result<Vec<Suggestion>> {

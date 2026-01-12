@@ -1,10 +1,12 @@
 use std::{env, sync::Arc, time::Instant};
 
-use frankenstein::{
-    AllowedUpdate, AnswerInlineQueryParams, AsyncApi, AsyncTelegramApi, GetUpdatesParams,
-    InlineKeyboardButton, InlineKeyboardMarkup, InlineQueryResult, InlineQueryResultArticle,
-    InputMessageContent, InputTextMessageContent, ParseMode, UpdateContent,
-};
+use frankenstein::ParseMode;
+use frankenstein::inline_mode::{InlineQueryResult, InlineQueryResultArticle, InputMessageContent, InputTextMessageContent};
+use frankenstein::types::{AllowedUpdate, InlineKeyboardButton, InlineKeyboardMarkup};
+use frankenstein::updates::UpdateContent;
+use frankenstein::{AsyncTelegramApi, methods::{GetUpdatesParams, AnswerInlineQueryParams}};
+use frankenstein::client_reqwest::Bot;
+
 use steam_api::suggest::{get_suggestions, Suggestion};
 
 use tokio::task::JoinSet;
@@ -39,6 +41,11 @@ async fn build_messages(query_term: &str) -> anyhow::Result<Vec<(Suggestion, Str
     let mut join_set = JoinSet::new();
 
     let start = Instant::now();
+
+    // If suggestions is empty, return an inline response that is like "No results found for <query>"
+    if suggestions.is_empty() {
+        return Ok(vec![]);
+    }
 
     for suggestion in suggestions {
         join_set.spawn(async move {
@@ -106,12 +113,10 @@ async fn main() {
 
     let token = env::var("TELOXIDE_TOKEN").unwrap();
 
-    let api = AsyncApi::new(&token);
+    let api = Bot::new(&token);
     let api = Arc::new(api);
 
-    let update_params_builder =
-        GetUpdatesParams::builder().allowed_updates([AllowedUpdate::InlineQuery]);
-    let mut update_params = update_params_builder.clone().build();
+    let mut update_params = GetUpdatesParams::builder().timeout(5).allowed_updates(vec![AllowedUpdate::InlineQuery]).build();
 
     loop {
         let result = api.get_updates(&update_params).await;
@@ -120,12 +125,16 @@ async fn main() {
             Ok(response) => {
                 for update in response.result {
                     if let UpdateContent::InlineQuery(inline_query) = update.content {
+                        if inline_query.query.trim() == "" {
+                            continue;
+                        }
                         let started_at = Instant::now();
                         let now = Instant::now();
                         let Ok(messages) = build_messages(&inline_query.query).await else {
                             eprintln!("Failed to get Suggestions, ignoring query");
                             continue;
                         };
+
                         tracing::info!(
                             "Built data for query {} in {}ms",
                             inline_query.query,
@@ -133,10 +142,25 @@ async fn main() {
                         );
                         let now = Instant::now();
 
-                        let replies: Vec<_> = messages
-                            .into_iter()
-                            .enumerate()
-                            .map(|(idx, (suggestion, body))| {
+                        let replies: Vec<_> = if messages.is_empty() {
+                            // Return a non-clickable "No results found" entry
+                            vec![InlineQueryResult::Article(
+                                InlineQueryResultArticle::builder()
+                                    .id("no_results".to_string())
+                                    .title(format!("Nenhum resultado encontrado para '{}'", inline_query.query))
+                                    .description("Tente uma busca diferente".to_string())
+                                    .input_message_content(InputMessageContent::Text(
+                                        InputTextMessageContent::builder()
+                                            .message_text(format!("Nenhum resultado encontrado para '{}'", inline_query.query))
+                                            .build(),
+                                    ))
+                                    .build(),
+                            )]
+                        } else {
+                            messages
+                                .into_iter()
+                                .enumerate()
+                                .map(|(idx, (suggestion, body))| {
                                 let title = format!("{} - {}", suggestion.name, suggestion.price);
 
                                 InlineQueryResult::Article(
@@ -184,17 +208,20 @@ async fn main() {
                                                 .url(steam)
                                                 .build();
 
+                                            let keyboard = vec![
+                                                vec![protondb, steamdb],
+                                                vec![steam],
+                                            ];
+
                                             InlineKeyboardMarkup::builder()
-                                                .inline_keyboard(vec![
-                                                    vec![protondb, steamdb],
-                                                    vec![steam],
-                                                ])
+                                                .inline_keyboard(keyboard)
                                                 .build()
                                         })
                                         .build(),
                                 )
-                            })
-                            .collect();
+                                })
+                                .collect()
+                        };
 
                         tracing::info!(
                             "Built inline query responses in {}ms",
@@ -213,10 +240,7 @@ async fn main() {
                         tracing::info!("Sent response in {}ms", now.elapsed().as_millis());
                         tracing::info!("Whole process took {}ms", started_at.elapsed().as_millis());
 
-                        update_params = update_params_builder
-                            .clone()
-                            .offset(update.update_id + 1)
-                            .build();
+                        update_params.offset = Some(i64::from(update.update_id) + 1);
                     }
                 }
             }
